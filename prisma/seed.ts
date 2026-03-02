@@ -1,11 +1,13 @@
 /**
- * 개발용 시드 데이터
+ * X-Hub 2단계 시드 데이터
  * 실행: npx prisma db seed
+ * 설계: docs/X-Hub 2단계 설계 계획서 v2.0.md
  */
 
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import bcrypt from "bcrypt";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL!,
@@ -13,146 +15,186 @@ const adapter = new PrismaPg({
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  // Owner
-  const owner1 =
+  // 1. Owner
+  const owner =
     (await prisma.owner.findUnique({ where: { name: "ADNOC" } })) ??
     (await prisma.owner.create({ data: { name: "ADNOC" } }));
-  const owner2 =
-    (await prisma.owner.findUnique({ where: { name: "SHI" } })) ??
-    (await prisma.owner.create({ data: { name: "SHI" } }));
 
-  // Inspection Company
-  const inspCo =
-    (await prisma.inspectionCompany.findUnique({ where: { name: "KG Inspection" } })) ??
-    (await prisma.inspectionCompany.create({ data: { name: "KG Inspection" } }));
+  // 2. Makers
+  const makerNames = ["DS21 CO.,LTD.", "DS22 CO.,LTD.", "DS24 CO.,LTD."];
+  const makers: { id: string; name: string }[] = [];
+  for (const name of makerNames) {
+    const m =
+      (await prisma.maker.findUnique({ where: { name } })) ??
+      (await prisma.maker.create({ data: { name } }));
+    makers.push(m);
+  }
 
-  // Projects
-  let proj1 = await prisma.project.findFirst({
-    where: { name: "EPC FOR DALMA GAS DEVELOPMENT PROJECT 4331433" },
+  // 3. InspectionCompanies
+  const inspCo1 =
+    (await prisma.inspectionCompany.findUnique({ where: { name: "KG검사" } })) ??
+    (await prisma.inspectionCompany.create({ data: { name: "KG검사" } }));
+  const inspCo2 =
+    (await prisma.inspectionCompany.findUnique({ where: { name: "한국검사기술" } })) ??
+    (await prisma.inspectionCompany.create({ data: { name: "한국검사기술" } }));
+
+  // 4. Project
+  let project = await prisma.project.findFirst({
+    where: { name: "EPC FOR DALMA GAS DEVELOPMENT PROJECT" },
   });
-  if (!proj1) {
-    proj1 = await prisma.project.create({
+  if (!project) {
+    project = await prisma.project.create({
       data: {
-        name: "EPC FOR DALMA GAS DEVELOPMENT PROJECT 4331433",
-        ownerId: owner1.id,
+        name: "EPC FOR DALMA GAS DEVELOPMENT PROJECT",
+        code: "DALMA-2026",
+        status: "ACTIVE",
+        ownerId: owner.id,
       },
     });
   }
 
-  let proj2 = await prisma.project.findFirst({
-    where: { name: "AZ5172 LNG Carrier Welding Inspection" },
-  });
-  if (!proj2) {
-    proj2 = await prisma.project.create({
-      data: {
-        name: "AZ5172 LNG Carrier Welding Inspection",
-        ownerId: owner2.id,
-      },
-    });
+  // 5. ProjectMakers (DS21, DS22, DS24 모두 배정)
+  const projectMakers: { id: string; makerId: string }[] = [];
+  for (const maker of makers) {
+    const pm =
+      (await prisma.projectMaker.findUnique({
+        where: { projectId_makerId: { projectId: project.id, makerId: maker.id } },
+      })) ??
+      (await prisma.projectMaker.create({
+        data: { projectId: project.id, makerId: maker.id },
+      }));
+    projectMakers.push(pm);
   }
 
-  // Items
-  let item1 = await prisma.item.findFirst({
-    where: { projectId: proj1.id, number: "AZ5172-V-003" },
-  });
-  if (!item1) {
-    item1 = await prisma.item.create({
-      data: {
-        projectId: proj1.id,
-        name: "WATER FLASH VESSEL",
-        number: "AZ5172-V-003",
-      },
-    });
-  }
-
-  let item2 = await prisma.item.findFirst({
-    where: { projectId: proj1.id, number: "AZ5172-HDC-001A" },
-  });
-  if (!item2) {
-    item2 = await prisma.item.create({
-      data: {
-        projectId: proj1.id,
-        name: "WATER FLASH VESSEL",
-        number: "AZ5172-HDC-001A",
-      },
-    });
-  }
-
-  // Reports
-  const reports = [
-    {
-      itemId: item1.id,
-      reportNo: "KG-DALMA-RT-005",
-      tags: { drawingNo: "VN0200-AZ5172-24-GAS-0005_REV.B03", inspector: "S.K.Kim" },
-      status: "PENDING" as const,
-    },
-    {
-      itemId: item2.id,
-      reportNo: "KG-DALMA-RT-001",
-      tags: { drawingNo: "VN0200-AZ5172-24", inspector: "S.K.Kim" },
-      status: "PENDING" as const,
-    },
-    {
-      itemId: item1.id,
-      reportNo: "KG-DALMA-RT-002",
-      tags: { inspector: "J.H.Park" },
-      status: "APPROVED" as const,
-    },
+  // 6. DS24의 Item 3개
+  const ds24Pm = projectMakers.find((pm) => pm.makerId === makers[2].id)!;
+  const itemsData = [
+    { number: "AZ5172-V-003", name: "Water Flash Vessel" },
+    { number: "AZ5172-V-004", name: "Separator" },
+    { number: "AZ5172-E-001", name: "Heat Exchanger" },
   ];
+  const items: { id: string; number: string }[] = [];
+  for (const d of itemsData) {
+    let item = await prisma.item.findFirst({
+      where: { projectMakerId: ds24Pm.id, number: d.number },
+    });
+    if (!item) {
+      item = await prisma.item.create({
+        data: {
+          projectMakerId: ds24Pm.id,
+          number: d.number,
+          name: d.name,
+        },
+      });
+    }
+    items.push(item);
+  }
 
-  for (const r of reports) {
-    const existing = await prisma.report.findUnique({
-      where: { itemId_reportNo: { itemId: r.itemId, reportNo: r.reportNo } },
+  // 7. V-003에 NdtReport 3개
+  const itemV003 = items[0];
+  const reportsData = [
+    { reportNo: "KG-DALMA-RT-003", reportType: "RT" as const, status: "PENDING" as const },
+    { reportNo: "KG-DALMA-MT-001", reportType: "MT" as const, status: "APPROVED" as const },
+    { reportNo: "KG-DALMA-UT-001", reportType: "UT" as const, status: "PENDING" as const },
+  ];
+  let reportRt003: { id: string } | null = null;
+  for (const r of reportsData) {
+    const existing = await prisma.ndtReport.findUnique({
+      where: { itemId_reportNo: { itemId: itemV003.id, reportNo: r.reportNo } },
     });
     if (!existing) {
-      const report = await prisma.report.create({
+      const report = await prisma.ndtReport.create({
         data: {
-          itemId: r.itemId,
-          inspectionCompanyId: inspCo.id,
+          itemId: itemV003.id,
+          inspectionCompanyId: inspCo1.id,
           reportNo: r.reportNo,
-          reportType: "RT",
+          reportType: r.reportType,
           testPhase: "NA",
-          pdfUrl: "/placeholder.pdf",
-          issuedDate: new Date("2026-02-01"),
-          tags: r.tags,
+          issuedDate: new Date("2026-02-15"),
+          tags: { inspector: "S.K.Kim", procedureCode: "ASME Sec.V" },
           ownerApprovalStatus: r.status,
         },
       });
-      // RT 결과 행 추가 (KG-DALMA-RT-005, KG-DALMA-RT-001)
-      if (r.reportNo === "KG-DALMA-RT-005") {
-        await prisma.rtResultRow.createMany({
-          data: [
-            { reportId: report.id, identificationNo: "CWL1", locationNo: "1-2", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL1", locationNo: "2-3", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL1", locationNo: "3-1", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL2", locationNo: "1-2", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL2", locationNo: "2-3", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL3", locationNo: "1-2", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL3", locationNo: "2-3", result: "ACC", defect: null },
-          ],
-        });
-      }
-      if (r.reportNo === "KG-DALMA-RT-001") {
-        await prisma.rtResultRow.createMany({
-          data: [
-            { reportId: report.id, identificationNo: "CWL1", locationNo: "1-2", result: "REJ", defect: "PO" },
-            { reportId: report.id, identificationNo: "CWL1", locationNo: "2-3", result: "REJ", defect: "CR" },
-            { reportId: report.id, identificationNo: "CWL2", locationNo: "1-2", result: "REJ", defect: "PO" },
-          ],
-        });
-      }
-      if (r.reportNo === "KG-DALMA-RT-002") {
-        await prisma.rtResultRow.createMany({
-          data: [
-            { reportId: report.id, identificationNo: "CWL1", locationNo: "1-2", result: "ACC", defect: null },
-            { reportId: report.id, identificationNo: "CWL2", locationNo: "1-2", result: "ACC", defect: null },
-          ],
-        });
-      }
+      if (r.reportNo === "KG-DALMA-RT-003") reportRt003 = report;
+    } else if (r.reportNo === "KG-DALMA-RT-003") {
+      reportRt003 = existing;
     }
   }
 
+  // 8. RT-003에 Attachment 2개
+  if (reportRt003) {
+    const att1 = await prisma.attachment.findFirst({
+      where: { reportId: reportRt003.id, fileName: "RT-003-Report.pdf" },
+    });
+    if (!att1) {
+      await prisma.attachment.create({
+        data: {
+          reportId: reportRt003.id,
+          fileName: "RT-003-Report.pdf",
+          fileUrl: "/placeholder/RT-003-Report.pdf",
+          fileType: "REPORT_PDF",
+        },
+      });
+    }
+    const att2 = await prisma.attachment.findFirst({
+      where: { reportId: reportRt003.id, fileName: "NDE-Map-V003.pdf" },
+    });
+    if (!att2) {
+      await prisma.attachment.create({
+        data: {
+          reportId: reportRt003.id,
+          fileName: "NDE-Map-V003.pdf",
+          fileUrl: "/placeholder/NDE-Map-V003.pdf",
+          fileType: "NDE_MAP",
+        },
+      });
+    }
+
+    // 9. RT-003에 RtResultRow 5개 (CWL1 ACC 3개, CWL2 REJ 1개 포함)
+    const rowCount = await prisma.rtResultRow.count({
+      where: { reportId: reportRt003.id },
+    });
+    if (rowCount === 0) {
+      await prisma.rtResultRow.createMany({
+        data: [
+          { reportId: reportRt003.id, identificationNo: "CWL1", locationNo: "1-2", result: "ACC", defect: null },
+          { reportId: reportRt003.id, identificationNo: "CWL1", locationNo: "2-3", result: "ACC", defect: null },
+          { reportId: reportRt003.id, identificationNo: "CWL1", locationNo: "3-1", result: "ACC", defect: null },
+          { reportId: reportRt003.id, identificationNo: "CWL2", locationNo: "1-2", result: "REJ", defect: "PO" },
+          { reportId: reportRt003.id, identificationNo: "CWL2", locationNo: "2-3", result: "ACC", defect: null },
+        ],
+      });
+    }
+  }
+
+  // 10. User 2명 (owner@test.com, maker@test.com)
+  const passwordHash = await bcrypt.hash("test1234", 10);
+  const ownerUser =
+    (await prisma.user.findUnique({ where: { email: "owner@test.com" } })) ??
+    (await prisma.user.create({
+      data: {
+        email: "owner@test.com",
+        password: passwordHash,
+        name: "Owner Test",
+        role: "OWNER",
+        ownerId: owner.id,
+      },
+    }));
+  const makerUser =
+    (await prisma.user.findUnique({ where: { email: "maker@test.com" } })) ??
+    (await prisma.user.create({
+      data: {
+        email: "maker@test.com",
+        password: passwordHash,
+        name: "Maker Test",
+        role: "MAKER",
+        makerId: makers[2].id, // DS24
+      },
+    }));
+
   console.log("Seed completed.");
+  console.log("  - owner@test.com / test1234 (OWNER)");
+  console.log("  - maker@test.com / test1234 (MAKER)");
 }
 
 main()

@@ -106,6 +106,9 @@ temp/
 # Icon artifacts
 **/Icon
 
+# ngrok
+ngrok.yml
+
 # Database
 *.db
 *.sqlite

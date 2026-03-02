@@ -1,5 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
+// X-Hub 2단계 설계 계획서 v2.0 기준
 
 generator client {
   provider = "prisma-client-js"
@@ -9,16 +10,28 @@ datasource db {
   provider = "postgresql"
 }
 
+// ============================================================
+// 사용자 및 조직
+// ============================================================
+
 model User {
-  id       String   @id @default(cuid())
-  email    String   @unique
-  name     String?
-  role     Role     @default(MAKER)
-  projects Project[] @relation("ProjectUsers")
-  owner    Owner?   @relation(fields: [ownerId], references: [id])
-  ownerId  String?
-  maker    Maker?   @relation(fields: [makerId], references: [id])
-  makerId  String?
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String   // bcrypt 해시
+  name      String?
+  role      Role     @default(MAKER)
+
+  // 소속 조직 (하나만 선택)
+  owner     Owner?   @relation(fields: [ownerId], references: [id])
+  ownerId   String?
+  maker     Maker?   @relation(fields: [makerId], references: [id])
+  makerId   String?
+
+  // 승인 기록
+  approvedReports NdtReport[] @relation("ApprovedBy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum Role {
@@ -29,62 +42,115 @@ enum Role {
 
 model Owner {
   id       String    @id @default(cuid())
-  name     String    @unique
+  name     String    @unique  // 예: ADNOC, Saudi Aramco
   users    User[]
   projects Project[]
+
+  createdAt DateTime @default(now())
 }
 
 model Maker {
-  id    String  @id @default(cuid())
-  name  String  @unique
-  users User[]
+  id             String          @id @default(cuid())
+  name           String          @unique  // 예: DS21 CO.,LTD.
+  users          User[]
+  projectMakers  ProjectMaker[]
+
+  createdAt DateTime @default(now())
 }
 
 model InspectionCompany {
-  id      String   @id @default(cuid())
-  name    String   @unique
-  reports Report[]
+  id      String      @id @default(cuid())
+  name    String      @unique  // 예: KG검사
+  reports NdtReport[]
+
+  createdAt DateTime @default(now())
 }
+
+// ============================================================
+// 프로젝트 및 제작사 배정
+// ============================================================
 
 model Project {
   id      String   @id @default(cuid())
-  name    String
+  name    String   // 예: EPC FOR DALMA GAS DEVELOPMENT PROJECT
+  code    String?  // 예: DALMA-2026 (프로젝트 코드)
+  status  ProjectStatus @default(ACTIVE)
+
   owner   Owner    @relation(fields: [ownerId], references: [id])
   ownerId String
-  items   Item[]
-  members User[]   @relation("ProjectUsers")
+
+  projectMakers ProjectMaker[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
+
+enum ProjectStatus {
+  ACTIVE
+  HOLD
+  DONE
+}
+
+// ★ 핵심: Project-Maker N:M 중간 테이블
+// 하나의 프로젝트에 여러 제작사, 하나의 제작사가 여러 프로젝트
+model ProjectMaker {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+  maker     Maker    @relation(fields: [makerId], references: [id])
+  makerId   String
+
+  items     Item[]   // 이 Maker가 이 Project에서 담당하는 Item들
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, makerId])
+}
+
+// ============================================================
+// 검사 대상 (Item) 및 리포트
+// ============================================================
 
 model Item {
-  id         String   @id @default(cuid())
-  name       String // e.g., WATER FLASH VESSEL
-  number     String // e.g., AZ5172-V-003
-  project    Project  @relation(fields: [projectId], references: [id])
-  projectId  String
-  reports    Report[]
+  id       String @id @default(cuid())
+  name     String // 예: WATER FLASH VESSEL
+  number   String // 예: AZ5172-V-003
+  drawingNo String? // 예: DWG-2026-001
 
-  @@unique([projectId, number])
+  projectMaker   ProjectMaker @relation(fields: [projectMakerId], references: [id])
+  projectMakerId String
+
+  reports NdtReport[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectMakerId, number])
 }
 
-model Report {
-  id                    String   @id @default(cuid())
-  reportNo              String
-  reportType            ReportType
-  testPhase             TestPhase @default(NA)
-  pdfUrl                String
-  issuedDate            DateTime
-  tags                  Json? // { "drawingNo": "...", "inspector": "..." }
+model NdtReport {
+  id         String     @id @default(cuid())
+  reportNo   String     // 예: KG-DALMA-RT-003
+  reportType ReportType
+  testPhase  TestPhase  @default(NA)
+  issuedDate DateTime
+  tags       Json?      // 자유 필드 { "inspector": "...", "procedureCode": "..." }
 
-  item                  Item     @relation(fields: [itemId], references: [id])
-  itemId                String
-  inspectionCompany     InspectionCompany @relation(fields: [inspectionCompanyId], references: [id])
-  inspectionCompanyId   String
+  item   Item   @relation(fields: [itemId], references: [id])
+  itemId String
 
-  // RT-specific structured data
+  inspectionCompany   InspectionCompany @relation(fields: [inspectionCompanyId], references: [id])
+  inspectionCompanyId String
+
+  // ★ 다중 첨부파일 (NDE Map, Scan Plan, Report PDF 등)
+  attachments Attachment[]
+
+  // RT 전용 구조화 데이터
   rtResultRows RtResultRow[]
 
-  // Owner Approval
+  // Owner 승인
   ownerApprovalStatus ApprovalStatus @default(PENDING)
+  ownerApprovedBy     User?          @relation("ApprovedBy", fields: [ownerApprovedById], references: [id])
   ownerApprovedById   String?
   ownerApprovedAt     DateTime?
   ownerComment        String?
@@ -101,7 +167,8 @@ enum ReportType {
   UT
   HT
   PMI
-  OTHER // For Phase 1, non-RT reports will use this type
+  VT
+  OTHER
 }
 
 enum TestPhase {
@@ -116,13 +183,45 @@ enum ApprovalStatus {
   REJECTED
 }
 
-// Only for RT Reports
+// ============================================================
+// 첨부파일
+// ============================================================
+
+// ★ 신규: 리포트당 다중 첨부
+model Attachment {
+  id           String         @id @default(cuid())
+  fileName     String         // 원본 파일명
+  fileUrl      String         // S3/MinIO URL
+  fileSize     Int?           // bytes
+  fileType     AttachmentType @default(REPORT_PDF)
+
+  report   NdtReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportId String
+
+  uploadedAt DateTime @default(now())
+}
+
+enum AttachmentType {
+  REPORT_PDF   // 리포트 본문 PDF
+  NDE_MAP      // NDE Map
+  SCAN_PLAN    // Scan Plan
+  WELD_MAP     // Weld Map
+  OTHER        // 기타
+}
+
+// ============================================================
+// RT 전용 결과 행
+// ============================================================
+
 model RtResultRow {
   id               String  @id @default(cuid())
-  report           Report  @relation(fields: [reportId], references: [id])
+  report           NdtReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
   reportId         String
-  identificationNo String // e.g., CWL1
-  locationNo       String // e.g., 1-2
-  result           String // ACC, REJ
-  defect           String? // PO, CR, LF etc.
+  identificationNo String  // 예: CWL1 (용접 이음부 ID)
+  locationNo       String  // 예: 1-2 (필름 위치)
+  result           String  // ACC, REJ
+  defect           String? // PO, CR, LF, SI 등
+
+  // x-view 연동용 (선택)
+  studyInstanceUid String? // DICOM Study UID
 }

@@ -169,6 +169,10 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+    },
     proxy: {
       "/api": {
         target: "http://localhost:3001",
@@ -183,6 +187,8 @@ export default defineConfig({
       ".manus-asia.computer",
       ".manuscomputer.ai",
       ".manusvm.computer",
+      ".ngrok-free.app",
+      ".ngrok-free.dev",
       "localhost",
       "127.0.0.1",
       "100.112.184.96",  // Tailscale IP

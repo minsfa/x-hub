@@ -1,6 +1,5 @@
-// TODO: 인증 구현 후 실제 사용자 정보로 교체
-const currentUser = { name: "S.K.Kim", role: "Inspector", avatar: "SK" };
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   ClipboardList,
   Cog,
@@ -20,6 +19,9 @@ interface LayoutProps {
 
 export default function Layout({ children, projectInfo }: LayoutProps) {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
+  const displayName = user?.name ?? user?.email ?? "User";
+  const avatar = displayName.slice(0, 2).toUpperCase();
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -57,9 +59,13 @@ export default function Layout({ children, projectInfo }: LayoutProps) {
         {/* User */}
         <div className="flex flex-col items-center gap-2">
           <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center text-xs font-medium text-secondary-foreground">
-            {currentUser.avatar}
+            {avatar}
           </div>
-          <button className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            onClick={() => logout()}
+            className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+            title="Logout"
+          >
             <LogOut size={18} />
           </button>
         </div>
@@ -92,9 +98,13 @@ export default function Layout({ children, projectInfo }: LayoutProps) {
           <div className="ml-auto flex items-center gap-4">
             <div className="flex items-center gap-2">
               <User size={16} className="text-muted-foreground" />
-              <span className="text-sm">{currentUser.name}</span>
+              <span className="text-sm">{displayName}</span>
+              <span className="text-xs text-muted-foreground">({user?.role})</span>
             </div>
-            <button className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <button
+              onClick={() => logout()}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
               Logout
             </button>
           </div>
