@@ -1,4 +1,5 @@
-import { currentUser } from "@/data/mockData";
+// TODO: 인증 구현 후 실제 사용자 정보로 교체
+const currentUser = { name: "S.K.Kim", role: "Inspector", avatar: "SK" };
 import { cn } from "@/lib/utils";
 import {
   ClipboardList,

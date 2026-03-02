@@ -3,35 +3,150 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  getImagesByStudyId,
-  getProjectById,
-  getReportsByProjectId,
-  getStudiesByReportId,
-  type ImageData,
-  type Report,
-  type Study,
-} from "@/data/mockData";
+  fetchProject,
+  fetchReport,
+  fetchReportsByProject,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { ReportListItem } from "@shared/types";
 import {
   ArrowLeft,
-  Calendar,
   CheckCircle2,
   ExternalLink,
   Search,
   XCircle,
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import { toast } from "sonner";
 
+// RtResultRow 기반 Study (identificationNo로 그룹)
+interface Study {
+  id: string;
+  identificationNo: string;
+  status: "ACC" | "REJ";
+}
+
+// RtResultRow = Image
+interface ImageData {
+  id: string;
+  studyId: string;
+  locationNo: string;
+  result: "ACC" | "REJ";
+  defect: string;
+  approvalStatus: "Pending" | "Approved" | "Rejected";
+}
+
 export default function Workspace() {
   const params = useParams<{ projectId: string }>();
-  const projectId = params.projectId;
-  const project = getProjectById(projectId);
+  const projectId = params.projectId ?? "";
 
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: project, isLoading: projectLoading, error: projectError } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => fetchProject(projectId),
+    enabled: !!projectId,
+  });
+
+  const { data: reports = [], isLoading: reportsLoading } = useQuery({
+    queryKey: ["reports", projectId],
+    queryFn: () => fetchReportsByProject(projectId),
+    enabled: !!projectId,
+  });
+
+  const { data: reportDetail } = useQuery({
+    queryKey: ["report", selectedReportId],
+    queryFn: () => fetchReport(selectedReportId!),
+    enabled: !!selectedReportId,
+  });
+
+  // Studies: rtResultRows를 identificationNo로 그룹
+  const studies: Study[] = reportDetail?.rtResultRows
+    ? (() => {
+        const byId = new Map<string, { ids: string[]; hasRej: boolean }>();
+        for (const row of reportDetail.rtResultRows) {
+          const key = row.identificationNo;
+          if (!byId.has(key)) {
+            byId.set(key, { ids: [], hasRej: false });
+          }
+          const g = byId.get(key)!;
+          g.ids.push(row.id);
+          if (row.result === "REJ") g.hasRej = true;
+        }
+        return Array.from(byId.entries()).map(([identificationNo, g]) => ({
+          id: identificationNo,
+          identificationNo,
+          status: (g.hasRej ? "REJ" : "ACC") as "ACC" | "REJ",
+        }));
+      })()
+    : [];
+
+  // Images: 선택된 study의 rtResultRows
+  const images: ImageData[] =
+    reportDetail?.rtResultRows && selectedStudyId
+      ? reportDetail.rtResultRows
+          .filter((r) => r.identificationNo === selectedStudyId)
+          .map((r) => ({
+            id: r.id,
+            studyId: selectedStudyId,
+            locationNo: r.locationNo,
+            result: r.result as "ACC" | "REJ",
+            defect: r.defect ?? "None",
+            approvalStatus:
+              reportDetail.ownerApprovalStatus === "PENDING"
+                ? "Pending"
+                : reportDetail.ownerApprovalStatus === "APPROVED"
+                  ? "Approved"
+                  : "Rejected",
+          }))
+      : [];
+
+  const filteredReports = reports.filter(
+    (r) =>
+      r.reportNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.itemName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedReport = selectedReportId
+    ? reports.find((r) => r.id === selectedReportId)
+    : null;
+
+  const selectedStudy = selectedStudyId
+    ? studies.find((s) => s.id === selectedStudyId)
+    : null;
+
+  const handleOpenViewer = () => {
+    const viewerUrl = `https://x-hub.inforad.co.kr/viewer/?studyid=1.2.724.33963612.20260201.16140473751755530199`;
+    window.open(viewerUrl, "_blank", "width=1200,height=800");
+  };
+
+  if (!projectId) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <p className="text-muted-foreground">Project not found</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (projectLoading || projectError) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          {projectLoading ? (
+            <p className="text-muted-foreground">Loading...</p>
+          ) : (
+            <p className="text-destructive">Failed to load project</p>
+          )}
+        </div>
+      </Layout>
+    );
+  }
 
   if (!project) {
     return (
@@ -43,44 +158,16 @@ export default function Workspace() {
     );
   }
 
-  const reports = getReportsByProjectId(projectId);
-  const filteredReports = reports.filter(
-    (r) =>
-      r.reportNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.itemName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const selectedReport = selectedReportId
-    ? reports.find((r) => r.id === selectedReportId)
-    : null;
-
-  const studies = selectedReportId
-    ? getStudiesByReportId(selectedReportId)
-    : [];
-
-  const selectedStudy = selectedStudyId
-    ? studies.find((s) => s.id === selectedStudyId)
-    : null;
-
-  const images = selectedStudyId ? getImagesByStudyId(selectedStudyId) : [];
-
-  const handleOpenViewer = () => {
-    // Open XView in new window
-    const viewerUrl = `https://x-hub.inforad.co.kr/viewer/?studyid=1.2.724.33963612.20260201.16140473751755530199`;
-    window.open(viewerUrl, "_blank", "width=1200,height=800");
-  };
-
   return (
     <Layout
       projectInfo={{
         name: project.name,
-        customer: project.customer,
+        customer: project.owner.name,
       }}
     >
       <div className="h-[calc(100vh-3.5rem)] flex">
-        {/* Pane 1: Report List (25%) */}
+        {/* Pane 1: Report List */}
         <div className="w-1/4 min-w-[280px] border-r border-border flex flex-col bg-card">
-          {/* Header */}
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between mb-3">
               <Link href="/">
@@ -96,8 +183,6 @@ export default function Workspace() {
                 Total: {reports.length}
               </span>
             </div>
-
-            {/* Search */}
             <div className="relative mt-3">
               <Search
                 size={14}
@@ -111,28 +196,29 @@ export default function Workspace() {
               />
             </div>
           </div>
-
-          {/* Report List */}
           <ScrollArea className="flex-1">
             <div className="p-2">
-              {filteredReports.map((report) => (
-                <ReportListItem
-                  key={report.id}
-                  report={report}
-                  isSelected={selectedReportId === report.id}
-                  onClick={() => {
-                    setSelectedReportId(report.id);
-                    setSelectedStudyId(null);
-                  }}
-                />
-              ))}
+              {reportsLoading ? (
+                <p className="text-sm text-muted-foreground py-4">Loading...</p>
+              ) : (
+                filteredReports.map((report) => (
+                  <ReportListItem
+                    key={report.id}
+                    report={report}
+                    isSelected={selectedReportId === report.id}
+                    onClick={() => {
+                      setSelectedReportId(report.id);
+                      setSelectedStudyId(null);
+                    }}
+                  />
+                ))
+              )}
             </div>
           </ScrollArea>
         </div>
 
-        {/* Pane 2: Study List (20%) */}
+        {/* Pane 2: Study List */}
         <div className="w-1/5 min-w-[200px] border-r border-border flex flex-col bg-card">
-          {/* Header */}
           <div className="p-4 border-b border-border">
             <h2 className="font-semibold">Joints / Studies</h2>
             {selectedReport && (
@@ -141,8 +227,6 @@ export default function Workspace() {
               </p>
             )}
           </div>
-
-          {/* Study List */}
           <ScrollArea className="flex-1">
             <div className="p-2">
               {selectedReportId ? (
@@ -169,9 +253,8 @@ export default function Workspace() {
           </ScrollArea>
         </div>
 
-        {/* Pane 3: Image List (55%) */}
+        {/* Pane 3: Image List */}
         <div className="flex-1 flex flex-col bg-background">
-          {/* Header */}
           <div className="p-4 border-b border-border flex items-center justify-between">
             <div>
               <h2 className="font-semibold">Film Strip & Tags</h2>
@@ -188,8 +271,6 @@ export default function Workspace() {
               </Button>
             )}
           </div>
-
-          {/* Image Table */}
           <ScrollArea className="flex-1">
             {selectedStudyId ? (
               images.length > 0 ? (
@@ -211,13 +292,12 @@ export default function Workspace() {
   );
 }
 
-// Report List Item Component
 function ReportListItem({
   report,
   isSelected,
   onClick,
 }: {
-  report: Report;
+  report: ReportListItem;
   isSelected: boolean;
   onClick: () => void;
 }) {
@@ -232,8 +312,8 @@ function ReportListItem({
         isSelected
           ? "bg-primary/10 border-l-primary"
           : isPending
-          ? "bg-transparent border-l-alert/50 hover:bg-secondary/50"
-          : "bg-transparent border-l-success/50 hover:bg-secondary/50"
+            ? "bg-transparent border-l-alert/50 hover:bg-secondary/50"
+            : "bg-transparent border-l-success/50 hover:bg-secondary/50"
       )}
     >
       <div className="flex items-start justify-between">
@@ -269,7 +349,6 @@ function ReportListItem({
   );
 }
 
-// Study List Item Component
 function StudyListItem({
   study,
   isSelected,
@@ -295,8 +374,7 @@ function StudyListItem({
           className={cn(
             "status-badge",
             study.status === "ACC" && "status-acc",
-            study.status === "REJ" && "status-rej",
-            study.status === "Pending" && "status-pending"
+            study.status === "REJ" && "status-rej"
           )}
         >
           {study.status}
@@ -306,7 +384,6 @@ function StudyListItem({
   );
 }
 
-// Image Table Component
 function ImageTable({ images }: { images: ImageData[] }) {
   const handleApprove = (imageId: string) => {
     toast.success("Image approved successfully");

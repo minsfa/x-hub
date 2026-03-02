@@ -8,8 +8,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { projects, type Project } from "@/data/mockData";
+import { fetchProjects } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { ProjectListItem } from "@shared/types";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,6 +19,7 @@ import {
   Search,
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 
 type ViewMode = "card" | "list";
@@ -27,6 +29,11 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [sortBy, setSortBy] = useState<SortOption>("latest");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: projects = [], isLoading, error } = useQuery({
+    queryKey: ["projects"],
+    queryFn: fetchProjects,
+  });
 
   // Filter and sort projects
   const filteredProjects = projects
@@ -51,6 +58,26 @@ export default function Dashboard() {
           );
       }
     });
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="p-6 flex items-center justify-center min-h-[200px]">
+          <p className="text-muted-foreground">Loading projects...</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="p-6 flex items-center justify-center min-h-[200px]">
+          <p className="text-destructive">Failed to load projects. Please try again.</p>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -137,7 +164,7 @@ export default function Dashboard() {
 }
 
 // Card View Component
-function CardView({ projects }: { projects: Project[] }) {
+function CardView({ projects }: { projects: ProjectListItem[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {projects.map((project) => (
@@ -148,7 +175,7 @@ function CardView({ projects }: { projects: Project[] }) {
 }
 
 // Project Card Component
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({ project }: { project: ProjectListItem }) {
   const hasPending = project.pendingCount > 0;
 
   return (
@@ -234,7 +261,7 @@ function ProjectCard({ project }: { project: Project }) {
 }
 
 // List View Component
-function ListView({ projects }: { projects: Project[] }) {
+function ListView({ projects }: { projects: ProjectListItem[] }) {
   return (
     <div className="panel-beveled overflow-hidden">
       <table className="w-full">

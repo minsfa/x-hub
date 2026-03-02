@@ -100,7 +100,14 @@ jspm_packages/
 tmp/
 temp/
 
+# Manus debug logs
+.manus-logs/
+
+# Icon artifacts
+**/Icon
+
 # Database
 *.db
 *.sqlite
 *.sqlite3
+data/

@@ -1,0 +1,128 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id       String   @id @default(cuid())
+  email    String   @unique
+  name     String?
+  role     Role     @default(MAKER)
+  projects Project[] @relation("ProjectUsers")
+  owner    Owner?   @relation(fields: [ownerId], references: [id])
+  ownerId  String?
+  maker    Maker?   @relation(fields: [makerId], references: [id])
+  makerId  String?
+}
+
+enum Role {
+  OWNER
+  MAKER
+  ADMIN
+}
+
+model Owner {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  users    User[]
+  projects Project[]
+}
+
+model Maker {
+  id    String  @id @default(cuid())
+  name  String  @unique
+  users User[]
+}
+
+model InspectionCompany {
+  id      String   @id @default(cuid())
+  name    String   @unique
+  reports Report[]
+}
+
+model Project {
+  id      String   @id @default(cuid())
+  name    String
+  owner   Owner    @relation(fields: [ownerId], references: [id])
+  ownerId String
+  items   Item[]
+  members User[]   @relation("ProjectUsers")
+}
+
+model Item {
+  id         String   @id @default(cuid())
+  name       String // e.g., WATER FLASH VESSEL
+  number     String // e.g., AZ5172-V-003
+  project    Project  @relation(fields: [projectId], references: [id])
+  projectId  String
+  reports    Report[]
+
+  @@unique([projectId, number])
+}
+
+model Report {
+  id                    String   @id @default(cuid())
+  reportNo              String
+  reportType            ReportType
+  testPhase             TestPhase @default(NA)
+  pdfUrl                String
+  issuedDate            DateTime
+  tags                  Json? // { "drawingNo": "...", "inspector": "..." }
+
+  item                  Item     @relation(fields: [itemId], references: [id])
+  itemId                String
+  inspectionCompany     InspectionCompany @relation(fields: [inspectionCompanyId], references: [id])
+  inspectionCompanyId   String
+
+  // RT-specific structured data
+  rtResultRows RtResultRow[]
+
+  // Owner Approval
+  ownerApprovalStatus ApprovalStatus @default(PENDING)
+  ownerApprovedById   String?
+  ownerApprovedAt     DateTime?
+  ownerComment        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([itemId, reportNo])
+}
+
+enum ReportType {
+  RT
+  MT
+  UT
+  HT
+  PMI
+  OTHER // For Phase 1, non-RT reports will use this type
+}
+
+enum TestPhase {
+  BEFORE_PWHT
+  AFTER_PWHT
+  NA
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Only for RT Reports
+model RtResultRow {
+  id               String  @id @default(cuid())
+  report           Report  @relation(fields: [reportId], references: [id])
+  reportId         String
+  identificationNo String // e.g., CWL1
+  locationNo       String // e.g., 1-2
+  result           String // ACC, REJ
+  defect           String? // PO, CR, LF etc.
+}

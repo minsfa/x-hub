@@ -169,8 +169,14 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    proxy: {
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+    },
     strictPort: false, // Will find next available port if 3000 is busy
-    host: true,
+    host: "0.0.0.0", // Tailscale 등 외부 접속 허용
     allowedHosts: [
       ".manuspre.computer",
       ".manus.computer",
@@ -179,6 +185,7 @@ export default defineConfig({
       ".manusvm.computer",
       "localhost",
       "127.0.0.1",
+      "100.112.184.96",  // Tailscale IP
     ],
     fs: {
       strict: true,
